@@ -1,4 +1,3 @@
-
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -14,7 +13,7 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 const PROJECT_ROOT = import.meta.dirname;
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
-const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
+const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60%
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
@@ -26,16 +25,15 @@ function ensureLogDir() {
 
 function trimLogFile(logPath: string, maxSize: number) {
   try {
-    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) {
-      return;
-    }
+    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) return;
 
     const lines = fs.readFileSync(logPath, "utf-8").split("\n");
     const keptLines: string[] = [];
     let keptBytes = 0;
 
-    // Keep newest lines (from end) that fit within 60% of maxSize
     const targetSize = TRIM_TARGET_BYTES;
+
+    // Keep newest lines (from end) that fit within target size
     for (let i = lines.length - 1; i >= 0; i--) {
       const lineBytes = Buffer.byteLength(`${lines[i]}\n`, "utf-8");
       if (keptBytes + lineBytes > targetSize) break;
@@ -50,21 +48,17 @@ function trimLogFile(logPath: string, maxSize: number) {
 }
 
 function writeToLogFile(source: LogSource, entries: unknown[]) {
-  if (entries.length === 0) return;
+  if (!entries || entries.length === 0) return;
 
   ensureLogDir();
   const logPath = path.join(LOG_DIR, `${source}.log`);
 
-  // Format entries with timestamps
   const lines = entries.map((entry) => {
     const ts = new Date().toISOString();
     return `[${ts}] ${JSON.stringify(entry)}`;
   });
 
-  // Append to log file
   fs.appendFileSync(logPath, `${lines.join("\n")}\n`, "utf-8");
-
-  // Trim if exceeds max size
   trimLogFile(logPath, MAX_LOG_SIZE_BYTES);
 }
 
@@ -79,9 +73,8 @@ function vitePluginManusDebugCollector(): Plugin {
     name: "manus-debug-collector",
 
     transformIndexHtml(html) {
-      if (process.env.NODE_ENV === "production") {
-        return html;
-      }
+      if (process.env.NODE_ENV === "production") return html;
+
       return {
         html,
         tags: [
@@ -98,21 +91,17 @@ function vitePluginManusDebugCollector(): Plugin {
     },
 
     configureServer(server: ViteDevServer) {
-      // POST /__manus__/logs: Browser sends logs (written directly to files)
       server.middlewares.use("/__manus__/logs", (req, res, next) => {
-        if (req.method !== "POST") {
-          return next();
-        }
+        if (req.method !== "POST") return next();
 
         const handlePayload = (payload: any) => {
-          // Write logs directly to files
-          if (payload.consoleLogs?.length > 0) {
+          if (payload?.consoleLogs?.length) {
             writeToLogFile("browserConsole", payload.consoleLogs);
           }
-          if (payload.networkRequests?.length > 0) {
+          if (payload?.networkRequests?.length) {
             writeToLogFile("networkRequests", payload.networkRequests);
           }
-          if (payload.sessionEvents?.length > 0) {
+          if (payload?.sessionEvents?.length) {
             writeToLogFile("sessionReplay", payload.sessionEvents);
           }
 
@@ -120,6 +109,7 @@ function vitePluginManusDebugCollector(): Plugin {
           res.end(JSON.stringify({ success: true }));
         };
 
+        // If some middleware already parsed body:
         const reqBody = (req as { body?: unknown }).body;
         if (reqBody && typeof reqBody === "object") {
           try {
@@ -131,6 +121,7 @@ function vitePluginManusDebugCollector(): Plugin {
           return;
         }
 
+        // Otherwise parse raw JSON
         let body = "";
         req.on("data", (chunk) => {
           body += chunk.toString();
@@ -150,28 +141,35 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+];
 
-export default defin{eConfig({
- 
-  
- plugins,
-  resolve:
+export default defineConfig({
+  plugins,
+
+  resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
+  },
 
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
+
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
+
   server: {
     port: 3000,
-    strictPort: false, // Will find next available port if 3000 is busy
+    strictPort: false,
     host: true,
     allowedHosts: [
       ".manuspre.computer",
